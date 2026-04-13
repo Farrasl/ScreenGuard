@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Shoulder Surfing Detector</string>
+    <string name="desc_security">Aplikasi ini berjalan di latar belakang untuk mendeteksi lebih dari satu wajah menggunakan kamera depan dan akan mengunci layar secara otomatis jika terdeteksi ancaman.</string>
+    <string name="btn_start_detection">START Deteksi Keamanan</string>
+    <string name="btn_stop_detection">STOP Deteksi Keamanan</string>
+    <string name="status_admin_inactive">Status Izin Device Admin: Tidak Aktif</string>
+    <string name="status_admin_active">Status Izin Device Admin: Aktif</string>
+    <string name="status_admin_status">Status izin Device Administrator untuk mengunci layar.</string>
+</resources>
