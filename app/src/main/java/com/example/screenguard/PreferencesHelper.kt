@@ -36,7 +36,6 @@ class PreferencesHelper(context: Context) {
         return prefs.getString(KEY_PREVENTION_MODE, MODE_LOCK) ?: MODE_LOCK
     }
 
-    // ... (kode log lainnya tetap sama) ...
     fun addDetectionLog(logMap: Map<String, Any>) {
         val currentLogs = getDetectionLogsList()
         currentLogs.add(logMap)

@@ -264,8 +264,13 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: LogViewHolder, position: Int) {
             val log = logs[position]
+
+            val faceCount = (log["face_count"] as? Number)?.toInt() ?: 0
+            val responseTime = (log["response_time_ms"] as? Number)?.toLong() ?: 0
+
             holder.tvDate.text = "📅 ${log["timestamp"]}"
-            holder.tvDetail.text = "👥 Wajah: ${log["face_count"]} | ⚡ Respons: ${log["response_time_ms"]}ms"
+            holder.tvDetail.text = "👥 Wajah: $faceCount | ⚡ Respons: ${responseTime}ms"
+
             val path = log["screenshot_path"]?.toString()
             if (!path.isNullOrEmpty()) {
                 val imgFile = File(path)

@@ -20,67 +20,26 @@ class ReportActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_report)
         prefs = PreferencesHelper(this)
 
-        // --- Setup Layout Programmatic ---
-        val rootLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 32, 32, 32)
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        }
+        val btnClearAll: Button = findViewById(R.id.btnClearAll)
+        val recyclerView: RecyclerView = findViewById(R.id.recyclerViewLogs)
 
-        val tvTitle = TextView(this).apply {
-            text = "Histori Ancaman"
-            textSize = 24f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.BLACK)
-            setPadding(0, 0, 0, 32)
+        recyclerView.layoutManager = LinearLayoutManager(this).apply {
+            reverseLayout = true
+            stackFromEnd = true
         }
-
-        val btnClearAll = Button(this).apply {
-            text = "Hapus Semua Histori"
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.RED)
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, 0, 0, 24) }
-        }
-
-        val recyclerView = RecyclerView(this).apply {
-            layoutManager = LinearLayoutManager(this@ReportActivity).apply {
-                reverseLayout = true
-                stackFromEnd = true
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
-
-        rootLayout.addView(tvTitle)
-        rootLayout.addView(btnClearAll) // Tombol ditaruh di atas list
-        rootLayout.addView(recyclerView)
-        setContentView(rootLayout)
 
         loadLogs(recyclerView)
 
-        // --- UPDATE 1: Konfirmasi Hapus Semua ---
         btnClearAll.setOnClickListener {
             val logCount = prefs.getDetectionLogsList().size
             if (logCount > 0) {
-                showDeleteConfirmation("Apakah Anda yakin ingin menghapus SEMUA ($logCount) histori ancaman? Data tidak dapat dikembalikan.") {
-                    // Aksi ini hanya dijalankan jika user menekan "Ya"
+                showDeleteConfirmation("Kosongkan semua histori?") {
                     prefs.clearLogs()
-                    Toast.makeText(this, "Semua histori telah dihapus permanen.", Toast.LENGTH_SHORT).show()
-                    finish() // Tutup activity karena data kosong
+                    finish()
                 }
-            } else {
-                Toast.makeText(this, "Data sudah kosong.", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -96,20 +55,25 @@ class ReportActivity : AppCompatActivity() {
 
         adapter = LogAdapter(logsList.toMutableList(),
             { log ->
+                val faceCount = (log["face_count"] as? Number)?.toInt()?.toString() ?: "0"
+                val responseTime = (log["response_time_ms"] as? Number)?.toLong()?.toString() ?: "0"
+
                 val intent = Intent(this, DetailReportActivity::class.java).apply {
                     putExtra("timestamp", log["timestamp"].toString())
-                    putExtra("face_count", log["face_count"].toString())
-                    putExtra("response_time", log["response_time_ms"].toString())
+
+                    putExtra("face_count", faceCount)
+                    putExtra("response_time", responseTime)
+
                     putExtra("fps", log["fps_avg"].toString())
                     putExtra("image_path", log["screenshot_path"].toString())
+                    putExtra("light_lux", log["light_lux"]?.toString() ?: "Tidak diketahui")
+                    putExtra("estimated_distance", log["estimated_distance"]?.toString() ?: "Tidak diketahui")
                 }
                 startActivity(intent)
             },
             // Callback Hapus Item (Delete per item)
             { position ->
-                // --- UPDATE 2: Konfirmasi Hapus Satu Item ---
                 showDeleteConfirmation("Hapus catatan ancaman ini?") {
-                    // Aksi ini hanya dijalankan jika user menekan "Ya"
                     prefs.removeLogAt(position)
 
                     val updatedList = prefs.getDetectionLogsList()

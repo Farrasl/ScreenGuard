@@ -7,6 +7,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -43,6 +47,19 @@ class DetectionService : LifecycleService() {
     private var startTime: Long = 0
     private var isLocking = false
 
+    private lateinit var sensorManager: SensorManager
+    private var lightSensor: Sensor? = null
+    private var currentLightLevel: Float = 0f
+
+    private val lightListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent?) {
+            if (event?.sensor?.type == Sensor.TYPE_LIGHT) {
+                currentLightLevel = event.values[0]
+            }
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
     companion object {
         @Volatile var isServiceRunning = false
     }
@@ -53,6 +70,12 @@ class DetectionService : LifecycleService() {
         isServiceRunning = true
         prefs = PreferencesHelper(this)
         startTime = System.currentTimeMillis()
+
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
+        lightSensor?.let {
+            sensorManager.registerListener(lightListener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -108,6 +131,9 @@ class DetectionService : LifecycleService() {
                     val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                     faceDetector.process(inputImage)
                         .addOnSuccessListener { faces ->
+
+                            var maxFaceAreaRatio = 0f
+
                             val peopleFacingAtScreen = faces.filter { face ->
                                 val hasFaceStructure = face.getLandmark(FaceLandmark.NOSE_BASE) != null ||
                                         face.getLandmark(FaceLandmark.MOUTH_BOTTOM) != null
@@ -118,7 +144,7 @@ class DetectionService : LifecycleService() {
                                 val rightEye = face.rightEyeOpenProbability ?: 0f
                                 val isEyeOpen = (leftEye > 0.8f || rightEye > 0.8f)
 
-                                // 2. Filter jarak via ukuran bounding box
+                                // Filter jarak via ukuran bounding box
                                 val frameWidth = imageProxy.width.toFloat()
                                 val frameHeight = imageProxy.height.toFloat()
                                 val faceWidth = face.boundingBox.width().toFloat()
@@ -127,8 +153,6 @@ class DetectionService : LifecycleService() {
                                 // Rasio luas wajah terhadap frame
                                 val faceAreaRatio = (faceWidth * faceHeight) / (frameWidth * frameHeight)
 
-                                // Wajah harus menempati minimal 3% luas frame
-                                // (kira-kira setara jarak ≤ 1.5–2 meter tergantung kamera)
                                 val isCloseEnough = faceAreaRatio > 0.005f
 
                                 hasFaceStructure && isFacingScreen && isEyeOpen && isCloseEnough
@@ -137,14 +161,11 @@ class DetectionService : LifecycleService() {
                             if (peopleFacingAtScreen > 1 && !isLocking) {
                                 isLocking = true
 
-                                // Simpan gambar bukti
                                 val screenshotPath = saveImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-
-                                // Jalankan aksi keamanan sesuai pilihan user (Lock / Notifikasi)
                                 triggerSecurityAction()
 
                                 val responseTime = System.currentTimeMillis() - inferenceStart
-                                logDetectionData(peopleFacingAtScreen, responseTime, calculateFps(), screenshotPath)
+                                logDetectionData(peopleFacingAtScreen, responseTime, calculateFps(), screenshotPath, currentLightLevel)
                             }
                         }
                         .addOnFailureListener { e ->
@@ -168,13 +189,20 @@ class DetectionService : LifecycleService() {
         return if (elapsed > 0) frameCount * 1000f / elapsed else 0f
     }
 
-    private fun logDetectionData(faceCount: Int, responseTime: Long, fps: Float, screenshotPath: String?) {
+    private fun logDetectionData(faceCount: Int, responseTime: Long, fps: Float, screenshotPath: String?, lux: Float) {
+        val lightDesc = when {
+            lux < 50 -> "Gelap (%.1f Lux)".format(lux)
+            lux < 300 -> "Sedang (%.1f Lux)".format(lux)
+            else -> "Terang (%.1f Lux)".format(lux)
+        }
+
         val logMap = mapOf(
             "timestamp" to java.text.DateFormat.getDateTimeInstance().format(java.util.Date()),
             "face_count" to faceCount,
             "response_time_ms" to responseTime,
             "fps_avg" to "%.2f".format(fps),
-            "screenshot_path" to (screenshotPath ?: "")
+            "screenshot_path" to (screenshotPath ?: ""),
+            "light_lux" to lightDesc,
         )
         prefs.addDetectionLog(logMap)
     }
@@ -203,7 +231,7 @@ class DetectionService : LifecycleService() {
 
             val matrix = Matrix().apply {
                 postRotate(rotation.toFloat())
-                postScale(-1f, 1f) // Mirroring untuk kamera depan
+                postScale(-1f, 1f)
             }
             val finalBitmap = Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
 
@@ -220,24 +248,18 @@ class DetectionService : LifecycleService() {
         }
     }
 
-    // --- LOGIKA UTAMA PENCEGAHAN (Lock / Notification) ---
     private fun triggerSecurityAction() {
         val mode = prefs.getPreventionMode()
 
         if (mode == PreferencesHelper.MODE_LOCK) {
-            // MEKANISME 1: AUTO LOCK SCREEN
             if (devicePolicyManager.isAdminActive(deviceAdminComponent)) {
                 devicePolicyManager.lockNow()
-                stopSelf() // Matikan service agar user harus mengaktifkan ulang manual
+                stopSelf()
             } else {
-                // Jika izin admin hilang tiba-tiba, reset flag agar bisa deteksi lagi
                 isLocking = false
             }
         } else {
-            // MEKANISME 2: NOTIFIKASI PERINGATAN
             showSecurityAlertNotification()
-
-            // Berikan jeda (Cooldown) 5 detik sebelum deteksi aktif kembali
             Handler(Looper.getMainLooper()).postDelayed({
                 isLocking = false
             }, 5000)
@@ -247,7 +269,6 @@ class DetectionService : LifecycleService() {
     private fun showSecurityAlertNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // Buat Channel Khusus Alert (High Priority: Suara & Pop-up)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 ALERT_CHANNEL_ID,
@@ -278,5 +299,7 @@ class DetectionService : LifecycleService() {
         super.onDestroy()
         isServiceRunning = false
         cameraExecutor.shutdown()
+        // Hentikan sensor cahaya agar hemat baterai saat service mati
+        sensorManager.unregisterListener(lightListener)
     }
 }
