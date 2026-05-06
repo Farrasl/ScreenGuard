@@ -140,9 +140,14 @@ class DetectionService : LifecycleService() {
 
                                 val isFacingScreen = Math.abs(face.headEulerAngleY) < 36
 
+                                val eyeThreshold = if (currentLightLevel < 50f) {
+                                    0.4f
+                                } else {
+                                    0.8f
+                                }
                                 val leftEye = face.leftEyeOpenProbability ?: 0f
                                 val rightEye = face.rightEyeOpenProbability ?: 0f
-                                val isEyeOpen = (leftEye > 0.8f || rightEye > 0.8f)
+                                val isEyeOpen = (leftEye > eyeThreshold || rightEye > eyeThreshold)
 
                                 // Filter jarak via ukuran bounding box
                                 val frameWidth = imageProxy.width.toFloat()
@@ -192,7 +197,7 @@ class DetectionService : LifecycleService() {
     private fun logDetectionData(faceCount: Int, responseTime: Long, fps: Float, screenshotPath: String?, lux: Float) {
         val lightDesc = when {
             lux < 50 -> "Gelap (%.1f Lux)".format(lux)
-            lux < 300 -> "Sedang (%.1f Lux)".format(lux)
+            lux < 300 -> "Normal (%.1f Lux)".format(lux)
             else -> "Terang (%.1f Lux)".format(lux)
         }
 
